@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Party Character Sheet</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #1c1c1f;
+      --card: #2a2a2e;
+      --ink: #f6f6f7;
+      --muted: #a7a7ae;
+      --line: #4a4a50;
+      --accent: #c9b18a;
+      --studio: #f4f4f2;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Instrument Sans", system-ui, sans-serif; }
+    body { min-height: 100dvh; padding: 20px 16px 48px; }
+    .top { max-width: 420px; margin: 0 auto 18px; }
+    .kicker { color: var(--accent); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; margin: 0 0 8px; }
+    h1 { font-size: 28px; line-height: 1.1; letter-spacing: -0.04em; margin: 0 0 8px; font-weight: 650; }
+    .lead { color: var(--muted); margin: 0; font-size: 15px; }
+    .stage { max-width: 420px; margin: 0 auto; }
+    .phone {
+      background: #7d7d82;
+      border-radius: 22px;
+      padding: 16px 16px 20px;
+      box-shadow: 0 30px 80px rgba(0,0,0,.35);
+    }
+    canvas { width: 100%; height: auto; display: block; background: var(--studio); border-radius: 4px; }
+    .panel { max-width: 420px; margin: 16px auto 0; background: var(--card); border-radius: 16px; padding: 16px; }
+    label { display: block; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+    input[type=text] {
+      width: 100%; border: 1px solid var(--line); background: #1f1f22; color: var(--ink);
+      border-radius: 10px; padding: 12px 12px; font: inherit; margin-bottom: 12px;
+    }
+    .drop {
+      border: 1.5px dashed var(--line); border-radius: 12px; min-height: 88px;
+      display: flex; align-items: center; justify-content: center; text-align: center;
+      color: var(--muted); cursor: pointer; margin-bottom: 12px; padding: 12px;
+    }
+    input[type=file] { display: none; }
+    .row { display: flex; gap: 8px; }
+    button {
+      flex: 1; border: 0; border-radius: 12px; padding: 13px 12px;
+      font: 650 15px/1 "Instrument Sans", sans-serif; cursor: pointer;
+    }
+    .go { background: var(--accent); color: #1a140c; }
+    .ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+    .hint { font-size: 12px; color: var(--muted); margin: 10px 0 0; }
+    .qr-box {
+      max-width: 420px; margin: 16px auto 0; background: var(--card);
+      border-radius: 16px; padding: 16px; text-align: center;
+    }
+    .qr-box img {
+      width: 220px; height: 220px; background: #fff; border-radius: 12px;
+      padding: 10px; display: block; margin: 0 auto 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <p class="kicker">Live party desk</p>
+    <h1>Same sheet. Your face.</h1>
+    <p class="lead">Everyone leaves with the same 9:16 eight-panel format. Drop a portrait. Download the card.</p>
+  </div>
+
+  <div class="stage">
+    <div class="phone">
+      <canvas id="sheet" width="1080" height="1920"></canvas>
+    </div>
+  </div>
+
+  <div class="panel">
+    <label>Name on the file</label>
+    <input id="name" type="text" maxlength="40" placeholder="Guest name" />
+    <label>Portrait</label>
+    <div class="drop" id="drop">Tap to add a photo</div>
+    <input id="file" type="file" accept="image/*" />
+    <div class="row">
+      <button class="go" id="dl" type="button">Download sheet</button>
+      <button class="ghost" id="reset" type="button">Next guest</button>
+    </div>
+    <p class="hint">Same card format for every guest. Photo stays on this device.</p>
+  </div>
+
+  <div class="qr-box">
+    <label>Guest QR</label>
+    <img id="qr" alt="Guest QR code" />
+    <input id="guestUrl" type="text" />
+    <p class="hint">Leave this tablet on this screen. Guests scan the code and open the same page.</p>
+  </div>
+
+<script>
+const canvas = document.getElementById("sheet");
+const ctx = canvas.getContext("2d");
+const W = canvas.width;
+const H = canvas.height;
+let photo = null;
+
+const VIEWS = [
+  { label: "1", crop: [0.15, 0.02, 0.70, 0.96] },
+  { label: "2", crop: [0.28, 0.02, 0.55, 0.96] },
+  { label: "3", crop: [0.18, 0.00, 0.64, 0.98] },
+  { label: "4", crop: [0.22, 0.02, 0.62, 0.96] },
+  { label: "5", crop: [0.18, 0.00, 0.64, 0.55] },
+  { label: "6", crop: [0.30, 0.00, 0.50, 0.55] },
+  { label: "7", crop: [0.20, 0.00, 0.60, 0.48] },
+  { label: "8", crop: [0.24, 0.00, 0.58, 0.55] },
+];
+
+function cells() {
+  const pad = 36;
+  const gap = 16;
+  const innerW = W - pad * 2;
+  const topH = Math.round(H * 0.38);
+  const rest = H - pad * 2 - topH - gap * 2;
+  const midH = Math.round(rest / 2);
+  const botH = rest - midH;
+  const topY = pad;
+  const midY = topY + topH + gap;
+  const botY = midY + midH + gap;
+  const tw = (innerW - gap * 3) / 4;
+  const hw = (innerW - gap) / 2;
+  return [
+    [pad, topY, tw, topH],
+    [pad + tw + gap, topY, tw, topH],
+    [pad + (tw + gap) * 2, topY, tw, topH],
+    [pad + (tw + gap) * 3, topY, tw, topH],
+    [pad, midY, hw, midH],
+    [pad + hw + gap, midY, hw, midH],
+    [pad, botY, hw, botH],
+    [pad + hw + gap, botY, hw, botH],
+  ];
+}
+
+function drawPlaceholder(x, y, w, h, i) {
+  ctx.fillStyle = "#e6e6e2";
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = "#b9b9b4";
+  ctx.font = "500 28px Instrument Sans, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(String(i + 1), x + w / 2, y + h / 2 + 10);
+}
+
+function drawPhoto(img, x, y, w, h, crop) {
+  const [cx, cy, cw, ch] = crop;
+  const sx = img.width * cx;
+  const sy = img.height * cy;
+  const sw = img.width * cw;
+  const sh = img.height * ch;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  const scale = Math.max(w / sw, h / sh);
+  const dw = sw * scale;
+  const dh = sh * scale;
+  ctx.drawImage(img, sx, sy, sw, sh, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+  ctx.restore();
+}
+
+function render() {
+  ctx.fillStyle = "#f4f4f2";
+  ctx.fillRect(0, 0, W, H);
+  cells().forEach((box, i) => {
+    const [x, y, w, h] = box;
+    if (photo) drawPhoto(photo, x, y, w, h, VIEWS[i].crop);
+    else drawPlaceholder(x, y, w, h, i);
+  });
+}
+
+render();
+
+const drop = document.getElementById("drop");
+const file = document.getElementById("file");
+drop.addEventListener("click", () => file.click());
+file.addEventListener("change", () => {
+  const f = file.files[0];
+  if (!f) return;
+  const url = URL.createObjectURL(f);
+  const img = new Image();
+  img.onload = () => { photo = img; drop.textContent = "Photo loaded"; render(); };
+  img.src = url;
+});
+
+document.getElementById("dl").addEventListener("click", () => {
+  const name = (document.getElementById("name").value || "guest").trim().replace(/[^\w\-]+/g, "_");
+  const a = document.createElement("a");
+  a.download = `${name}-character-sheet.png`;
+  a.href = canvas.toDataURL("image/png");
+  a.click();
+});
+
+function setQr(url) {
+  const safe = encodeURIComponent(url);
+  document.getElementById("qr").src =
+    "https://api.qrserver.com/v1/create-qr-code/?size=440x440&ecc=M&data=" + safe;
+}
+const urlEl = document.getElementById("guestUrl");
+const pagesUrl = "https://geollama.github.io/party-character-sheet/";
+const startUrl = location.protocol === "file:" ? pagesUrl : (location.origin + location.pathname);
+urlEl.value = startUrl;
+if (startUrl) setQr(startUrl);
+urlEl.addEventListener("input", () => {
+  const v = urlEl.value.trim();
+  if (v) setQr(v);
+});
+
+document.getElementById("reset").addEventListener("click", () => {
+  photo = null;
+  file.value = "";
+  document.getElementById("name").value = "";
+  drop.textContent = "Tap to add a photo";
+  render();
+});
+</script>
+</body>
+</html>
